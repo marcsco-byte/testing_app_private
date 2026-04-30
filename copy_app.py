@@ -148,18 +148,25 @@ def berechne_preis(quartier, zimmerzahl, wohnflaeche, baujahr,
     return round(preis_pro_m2), round(gesamtpreis), faktoren #gibt den gerundeten Preis pro m2, den gerundeten Gesamtpreis und das Dictionary der Faktoren zurück
 
 
-# ─────────────────────────────────────────────
-# CHART 1: DONUT – Zusammensetzung des Preises
-# ─────────────────────────────────────────────
-def erstelle_donut_chart(faktoren):
+# ─────────────────────────────────────────────────────────────
+# CHART 1b: WATERFALL – Zusammensetzung des Preises
+# Ersetzt den Donut-Chart. Zeigt wie jeder Faktor den Preis
+# erhöht (grün) oder senkt (rot) – mit korrektem Vorzeichen.
+# ─────────────────────────────────────────────────────────────
+def erstelle_waterfall_chart(faktoren, preis_pro_m2):
     """
-    Zeigt den relativen Einfluss jedes Faktors
-    als Anteil am Gesamtpreis (in Prozent).
-    """
-    # Nur Faktoren ohne Basispreis und nur wenn sie vom Standard (1.0) abweichen
-    labels = []
-    anteile = []
+    Zeigt den Aufbau des Preises als Wasserfall-Diagramm.
+    Jeder Balken zeigt den CHF-Beitrag eines Faktors.
+    Grün = preiserhöhend, Rot = preissenkend.
 
+    Parameter:
+        faktoren    (dict): Multiplikatoren aus berechne_preis()
+        preis_pro_m2 (int): Endpreis pro m² aus berechne_preis()
+    """
+
+    basispreis = faktoren["Basispreis (Quartier)"]  # CHF/m² des Quartiers (ohne Korrekturen)
+
+    # Faktoren die den Basispreis anpassen (ohne Lage)
     faktor_map = {
         "Zimmerzahl":  faktoren["Zimmerzahl"],
         "Zustand":     faktoren["Zustand"],
@@ -168,47 +175,70 @@ def erstelle_donut_chart(faktoren):
         "Ausstattung": faktoren["Ausstattung"],
     }
 
-    # Basispreis als grössten Anteil setzen
-    gesamt = faktoren["Basispreis (Quartier)"]
-    basis_anteil = 100.0
+    # ── CHF-Beitrag jedes Faktors berechnen ──
+    # Logik: Wie viel CHF/m² kommt durch diesen Faktor dazu oder weg?
+    # Basispreis wird schrittweise mit jedem Faktor multipliziert.
+    # Der Unterschied zum vorherigen Schritt = Beitrag dieses Faktors.
+    #
+    # Beispiel:
+    #   Basispreis:          12'000
+    #   × Zimmer (1.02):     12'240  → +240 CHF/m²
+    #   × Zustand (1.10):    13'464  → +1'224 CHF/m²
+    #   × Baujahr (0.95):    12'791  → -673 CHF/m²
 
-    # Anteil jedes Faktors berechnen (Abweichung von 1.0 in Prozent)
-    faktor_anteile = {}
-    for name, wert in faktor_map.items():
-        abweichung = abs((wert - 1.0) * 100)
-        if abweichung > 0.1:  # nur relevante Faktoren anzeigen
-            faktor_anteile[name] = round(abweichung, 1)
-            basis_anteil -= abweichung
+    namen  = []   # x-Achse: Bezeichnungen
+    werte  = []   # y-Achse: CHF-Beitrag pro Faktor
+    farben = []   # grün = positiv, rot = negativ
 
-    labels = ["Lage (Quartier)"] + list(faktor_anteile.keys())
-    werte  = [round(max(basis_anteil, 50), 1)] + list(faktor_anteile.values())
-    farben = ["#378ADD", "#1D9E75", "#EF9F27", "#D85A30", "#7F77DD", "#5DCAA5"]
+    laufender_preis = basispreis  # startet beim Basispreis
 
-    fig = go.Figure(go.Pie(
-        labels    = labels,
-        values    = werte,
-        hole      = 0.6,
-        marker    = dict(colors=farben[:len(labels)]),
-        textinfo  = "label+percent",
-        hovertemplate = "<b>%{label}</b><br>Einfluss: %{value:.1f}%<extra></extra>",
+    for name, faktor in faktor_map.items():
+        neuer_preis = laufender_preis * faktor          # Preis nach diesem Faktor
+        beitrag = round(neuer_preis - laufender_preis)  # Differenz = Einfluss in CHF
+
+        if abs(beitrag) > 10:  # Faktoren unter CHF 10 Einfluss ignorieren
+            namen.append(name)
+            werte.append(beitrag)
+            # Grün wenn Faktor Preis erhöht, Rot wenn er ihn senkt
+            farben.append("#1D9E75" if beitrag >= 0 else "#D85A30")
+            laufender_preis = neuer_preis  # nächster Faktor startet vom neuen Preis
+
+    # Basispreis und Endpreis als Rahmen dazufügen
+    # "inside" = Balken im Waterfall-Chart (relative Änderung)
+    # "total"  = absoluter Wert (Basispreis und Endpreis)
+    alle_namen  = ["Lage (Quartier)"] + namen           + ["Endpreis"]
+    alle_werte  = [basispreis]        + werte           + [preis_pro_m2]
+    alle_typen  = ["absolute"]        + ["relative"] * len(namen) + ["total"]
+    alle_farben = ["#378ADD"]         + farben          + ["#2563eb"]
+
+    # Waterfall-Chart erstellen
+    fig = go.Figure(go.Waterfall(
+        orientation = "v",                    # vertikale Balken
+        measure     = alle_typen,             # "absolute", "relative" oder "total"
+        x           = alle_namen,             # Beschriftung x-Achse
+        y           = alle_werte,             # Werte in CHF/m²
+        connector   = {"line": {"color": "#e2e8f0", "width": 1}},  # Verbindungslinien zwischen Balken
+        text        = [
+            f"+{v:,}".replace(",", "'") if v > 0
+            else f"{v:,}".replace(",", "'")
+            for v in alle_werte
+        ],  # Wert direkt auf jedem Balken anzeigen, mit Vorzeichen
+        textposition = "outside",             # Text oberhalb/unterhalb des Balkens
+        increasing   = {"marker": {"color": "#1D9E75"}},  # grün für positive Balken
+        decreasing   = {"marker": {"color": "#D85A30"}},  # rot für negative Balken
+        totals       = {"marker": {"color": "#378ADD"}},  # blau für Lage und Endpreis
     ))
 
     fig.update_layout(
-        title       = "Zusammensetzung des Preises – Einfluss der Faktoren",
-        showlegend  = False,
+        title         = "Zusammensetzung des Preises – Einfluss der Faktoren (CHF/m²)",
+        yaxis_title   = "CHF pro m²",
         plot_bgcolor  = "white",
         paper_bgcolor = "white",
-        margin = dict(t=60, b=20, l=20, r=20),
-        annotations = [dict(
-            text      = "Einfluss",
-            x=0.5, y=0.5,
-            font_size = 14,
-            showarrow = False,
-            font_color= "#6c757d"
-        )]
+        margin        = dict(t=60, b=20, l=20, r=20),
+        showlegend    = False,
     )
-    return fig
 
+    return fig
 
 # ─────────────────────────────────────────────
 # CHART 2: GAUGE – Preis im Marktvergleich
