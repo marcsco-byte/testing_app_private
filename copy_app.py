@@ -512,8 +512,8 @@ if st.session_state.ergebnis:
     # Chart 1: Donut
     st.markdown("### Zusammensetzung des Preises")
     st.caption("Prozentualer Einfluss der einzelnen Merkmale auf den Endpreis.")
-    fig_donut = erstelle_donut_chart(e["faktoren"])
-    st.plotly_chart(fig_donut, width="stretch")
+    fig_waterfall = erstelle_waterfall_chart(e["faktoren"], e["preis_pro_m2"])
+    st.plotly_chart(fig_waterfall, width="stretch")
 
     # Chart 2: Gauge
     st.markdown("### Preis im Marktvergleich")
